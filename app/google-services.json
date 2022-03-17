@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "675459640506",
+    "project_id": "chirpmein",
+    "storage_bucket": "chirpmein.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:675459640506:android:13994a18ea3c7c5d856683",
+        "android_client_info": {
+          "package_name": "chirp.me.in"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "675459640506-rl8pk3k3f2181lrab00rivd25v2sm5u2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "chirp.me.in",
+            "certificate_hash": "a5169312e057e13c62dfa2395d3ab5302bc54460"
+          }
+        },
+        {
+          "client_id": "675459640506-d7cdhvj98fiuf29eb90go83cokrtadgo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpYYs3ek1qRGpws45XNYJYvwj9A4E7_n0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "675459640506-d7cdhvj98fiuf29eb90go83cokrtadgo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

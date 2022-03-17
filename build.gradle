@@ -5,10 +5,21 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath "com.android.tools.build:gradle:7.0.4"
+        classpath 'com.android.tools.build:gradle:7.1.2'
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
+
+        // for google firebase services
+        classpath 'com.google.gms:google-services:4.3.10'
+    }
+}
+
+// for google firebase services
+allprojects {
+    repositories {
+        google()  // Google's Maven repository
+        mavenCentral()
     }
 }
 

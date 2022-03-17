@@ -1,5 +1,8 @@
 plugins {
     id 'com.android.application'
+
+    // for google firebase services
+    id 'com.google.gms.google-services'
 }
 
 android {
@@ -13,6 +16,8 @@ android {
         versionName "1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        resConfigs "en" // english support
     }
 
     buildTypes {
@@ -32,4 +37,15 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.4.1'
     implementation 'com.google.android.material:material:1.5.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.3'
+
+    // Import the Firebase BoM
+    implementation platform('com.google.firebase:firebase-bom:29.2.0')
+
+    // Add the dependency for the Firebase SDK for Google Analytics
+    // When using the BoM, don't specify versions in Firebase dependencies
+    implementation 'com.google.firebase:firebase-analytics'
+
+    // for firebase auth
+    implementation 'com.firebaseui:firebase-ui-auth:8.0.0'
+    implementation 'com.facebook.android:facebook-android-sdk:13.0.0'
 }
