@@ -39,6 +39,12 @@ android {
     }
 }
 
+repositories {
+    maven {
+        url "https://jitpack.io"
+    }
+}
+
 dependencies {
 
     implementation 'androidx.appcompat:appcompat:1.4.1'
@@ -65,4 +71,7 @@ dependencies {
 
     // for multidex
     implementation 'com.android.support:multidex:2.0.1'
+
+    // for audio conversion
+    implementation 'com.github.adrielcafe:AndroidAudioConverter:0.0.8'
 }

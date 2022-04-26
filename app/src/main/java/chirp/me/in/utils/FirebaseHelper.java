@@ -150,73 +150,73 @@ public class FirebaseHelper {
         );
 
         // add snapshot listener for flag
-        addSnapshotListener(user, new EventListener<DocumentSnapshot>() {
-            @Override
-            public void onEvent(@Nullable DocumentSnapshot snapshot, @Nullable FirebaseFirestoreException e) {
-                if (e != null) {
-                    Log.w("MY_SNAPSHOT", "Listen failed.", e);
-                }
+        addSnapshotListener(user, (snapshot, e) -> {
+            if (e != null) {
+                Log.w("MY_SNAPSHOT", "Listen failed.", e);
+            }
 
-                if (snapshot != null && snapshot.exists()) {
-                    Log.d("MY_SNAPSHOT", "Current data: " + snapshot.getData());
+            if (snapshot != null && snapshot.exists()) {
+                Log.d("MY_SNAPSHOT", "Current data: " + snapshot.getData());
 
-                    // extract flag value, assert != null
-                    int flag;
-                    Object o = snapshot.get("flag", Integer.TYPE);
-                    assert o != null;
-                    flag = (int) o;
+                // extract flag value, assert != null
+                int flag;
+                Object o = snapshot.get("flag", Integer.TYPE);
+                assert o != null;
+                flag = (int) o;
 
-                    // to perform on IDLE
-                    if(flag == IDLE) {  // flag is usually IDLE as system is idle
-                        // do nothing
-                    } else if(flag == WAKE_UP) {    // computer tells phone to wake up, start record
-                        // begin recording
-                        recordingHelper.startRecording(
-                                () -> Log.d("MY_RECORD", "Beginning to record")
-                        );
+                // to perform on IDLE
+                if(flag == IDLE) {  // flag is usually IDLE as system is idle
+                    // do nothing
+                } else if(flag == WAKE_UP) {    // computer tells phone to wake up, start record
+                    // begin recording
+                    recordingHelper.startRecording(() -> {
                         // note the time
                         timeStamp1 = System.currentTimeMillis();
                         // update flag
                         updateFlag(user, () -> Log.d("MY_FIREBASE", "Flag set to RECORDING_STARTED"), RECORDING_STARTED);
-                    } else if(flag == RECORDING_STARTED) {  // phone has begun recording
-                        // do nothing
-                    } else if(flag == PLAYBACK_STARTED) {   // computer has begun playback
-                        // note the time
-                        timeStamp2 = System.currentTimeMillis();
-                        // calculate latency in ms
-                        long latencyMS = timeStamp2 - timeStamp1;
-                        // TODO: dont let this run infinitely update latency in db
+                    },
+                            "recording.wav");
+
+                } else if(flag == RECORDING_STARTED) {  // phone has begun recording
+                    // do nothing
+                } else if(flag == PLAYBACK_STARTED) {   // computer has begun playback
+                    // note the time
+                    timeStamp2 = System.currentTimeMillis();
+                    // calculate latency in ms
+                    long latencyMS = timeStamp2 - timeStamp1;
+                    // TODO: dont let this run infinitely update latency in db
 //                        updateLatency(
 //                                user,
 //                                () -> Log.d("MY_LATENCY", "Latency set to: " + latencyMS + "ms"),
 //                                latencyMS
 //                        );
-                    } else if(flag == PLAYBACK_STOPPED) {   // playback stopped, upload file
-                        recordingHelper.stopRecording(() -> uploadFile(user, context));
-                    } else if(flag == FILE_UPLOADED) {
-                        // do nothing
-                    }
-                } else {
-                    Log.d("MY_SNAPSHOT", "Current data: null");
+                } else if(flag == PLAYBACK_STOPPED) {   // playback stopped, upload file
+                    recordingHelper.stopRecording(
+                            () -> uploadFile(user, context, "recording.wav")
+                    );
+                } else if(flag == FILE_UPLOADED) {
+                    // do nothing
                 }
+            } else {
+                Log.d("MY_SNAPSHOT", "Current data: null");
             }
         });
     }
 
     /**
-     * upload recording "recording.3gp" from local file to storage "recordings/[UID]/recording.3gp"
+     * upload recording "recording.mp3" from local file to storage "recordings/[UID]/recording.mp3"
      * @param user - firebase user
      * @param context - app context
      */
-    private void uploadFile(final FirebaseUser user, final Context context) {
+    private void uploadFile(final FirebaseUser user, final Context context, final String filename) {
         //  upload file to storage, if successful, update flag
         // get base storage reference
         FirebaseStorage storage = FirebaseStorage.getInstance();
         // get my cloud storage reference
-        StorageReference recordingRef = storage.getReference().child("recordings/" + user.getUid() + "recording.3gp");;
+        StorageReference recordingRef = storage.getReference().child("recordings/" + user.getUid() + "/" + filename);;
 
         // get local storage ref
-        Uri recordingFile = Uri.fromFile(new File(context.getExternalCacheDir().getAbsolutePath() + "/recording.3gp"));
+        Uri recordingFile = Uri.fromFile(new File(context.getExternalCacheDir().getAbsolutePath() + "/" + filename));
         // create upload task
         UploadTask uploadTask = recordingRef.putFile(recordingFile);
         // add failure listener
