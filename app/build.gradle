@@ -60,6 +60,9 @@ dependencies {
     implementation 'com.firebaseui:firebase-ui-auth:8.0.0'
     implementation 'com.facebook.android:facebook-android-sdk:13.0.0'
 
+    // for firebase cloud storage
+    implementation 'com.google.firebase:firebase-storage'
+
     // for multidex
     implementation 'com.android.support:multidex:2.0.1'
 }

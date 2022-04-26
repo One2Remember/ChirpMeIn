@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<!--    Give meaningful explanations for the states-->
+    <integer name="IDLE">0</integer>
+    <integer name="WAKE_UP">1</integer>
+    <integer name="RECORDING_STARTED">2</integer>
+    <integer name="PLAYBACK_STARTED">3</integer>
+    <integer name="PLAYBACK_STOPPED">4</integer>
+    <integer name="FILE_UPLOADED">5</integer>
+</resources>

@@ -1,6 +1,9 @@
 package chirp.me.in.activities;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -10,6 +13,7 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
 
 import com.firebase.ui.auth.AuthUI;
 import com.firebase.ui.auth.FirebaseAuthUIActivityResultContract;
@@ -35,21 +39,26 @@ public class LoginActivity extends BaseActivity {
      * signInLauncher, must be declared before view is created
      */
     private ActivityResultLauncher<Intent> signInLauncher;
-
     /**
      * google sign in button
      */
     private SignInButton gsiButton;
-
     /**
      * sign out button
      */
     private Button soButton;
-
     /**
      * for firebase comms
      */
     private FirebaseHelper myFirebaseHelper;
+    /**
+     * for record audio permission
+     */
+    private final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
+    /**
+     * for record audio permission
+     */
+    private final String[] permissions = {Manifest.permission.RECORD_AUDIO};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,18 +66,38 @@ public class LoginActivity extends BaseActivity {
         setContentView(R.layout.activity_login);
 
         initHelpers();
-        myFirebaseHelper.initToken();
+        // myFirebaseHelper.initToken();
         initHooks();
         initListeners();
         initView();
         initSignIn();
+        // request audio recording permission
+        ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
     }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        boolean audioRecordingPermissionGranted = false;
+
+        if(requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+            audioRecordingPermissionGranted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        }
+
+        if (!audioRecordingPermissionGranted) {
+            toast("Recording permission is required for ChirpMeIn to operate", true);
+            finish();
+        }
+    }
+
+
 
     /**
      * init firebase helper class
      */
     private void initHelpers() {
-        myFirebaseHelper = new FirebaseHelper();
+        myFirebaseHelper = new FirebaseHelper(getApplicationContext());
     }
 
     @Override
@@ -132,6 +161,8 @@ public class LoginActivity extends BaseActivity {
 
     /**
      * to be performed when returning from sign in activity
+     *  pushes profile to db, setting flag to idle
+     *  add a snapshot listener for any changes to document
      * @param result - result of sign in activity
      */
     private void onSignInResult(FirebaseAuthUIAuthenticationResult result) {
@@ -144,11 +175,8 @@ public class LoginActivity extends BaseActivity {
             assert user != null;
             toast("Welcome, " + user.getDisplayName(), false);
 
-            // TODO: push user profile to DB
-            myFirebaseHelper.pushUser(user, () -> {
-                toast("Pushed to db", false);
-            });
-
+            // init polling procedure
+            myFirebaseHelper.initPollingProcedure(user, LoginActivity.this);
         } else {
             // Sign in failed. If response is null the user canceled the
             // sign-in flow using the back button. Otherwise check
