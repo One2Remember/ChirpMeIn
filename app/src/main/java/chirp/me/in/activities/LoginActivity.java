@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.MediaRecorder;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -55,6 +56,8 @@ public class LoginActivity extends BaseActivity {
      * for record audio permission
      */
     private final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
+
+    private final int REQUEST_WRITE_EXTERNAL_STORAGE_PERMISSION = 2;
     /**
      * for record audio permission
      */
@@ -71,8 +74,11 @@ public class LoginActivity extends BaseActivity {
         initListeners();
         initView();
         initSignIn();
+        // request storage permissions
+        requestStoragePermissions();
         // request audio recording permission
         ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
+
     }
 
     @Override
@@ -80,14 +86,44 @@ public class LoginActivity extends BaseActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         boolean audioRecordingPermissionGranted = false;
+        boolean storagePermissionGranted = false;
 
-        if(requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+        if(requestCode == REQUEST_RECORD_AUDIO_PERMISSION && grantResults.length > 0) {
             audioRecordingPermissionGranted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if(!audioRecordingPermissionGranted) {
+                toast("Recording permission is required for ChirpMeIn to operate", true);
+                finish();
+            }
         }
+        else if(requestCode == REQUEST_WRITE_EXTERNAL_STORAGE_PERMISSION && grantResults.length > 0) {
+            storagePermissionGranted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if(!storagePermissionGranted) {
+                toast("External storage permission is required for ChirpMeIn to operate", true);
+                finish();
+            }
+        }
+    }
 
-        if (!audioRecordingPermissionGranted) {
-            toast("Recording permission is required for ChirpMeIn to operate", true);
-            finish();
+    public void requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= 23) {
+            if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED) {
+                Log.d("MY_STORAGE","Permission is granted");
+
+            } else {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        },
+                        REQUEST_WRITE_EXTERNAL_STORAGE_PERMISSION
+                );
+                Log.d("MY_STORAGE","Permission is revoked");
+            }
+        }
+        else { //permission is automatically granted on sdk<23 upon installation
+            Log.d("MY_STORAGE","Permission is granted");
+
         }
     }
 

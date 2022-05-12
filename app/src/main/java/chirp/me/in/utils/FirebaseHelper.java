@@ -3,21 +3,13 @@ package chirp.me.in.utils;
 import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
-import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-
-import com.google.android.gms.tasks.OnFailureListener;
-import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.EventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
-import com.google.firebase.firestore.FirebaseFirestoreException;
 import com.google.firebase.firestore.SetOptions;
-import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
@@ -25,6 +17,7 @@ import com.google.firebase.storage.UploadTask;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import chirp.me.in.R;
 import chirp.me.in.base.OnSuccessCallback;
@@ -38,6 +31,15 @@ public class FirebaseHelper {
     private final int PLAYBACK_STOPPED;
     private final int FILE_UPLOADED;
 
+
+    /**
+     * filename used for .wav file
+     */
+    private final String filename = "recording.wav";
+    /**
+     * for storing file absolute path
+     */
+    private final String absoluteFilePath;
     /**
      * initial timestamp when flag is locally set to RECORDING_STARTED (in ms)
      */
@@ -50,6 +52,14 @@ public class FirebaseHelper {
      * helper for recording
      */
     private RecordingHelper recordingHelper;
+    /**
+     * for processing wav file and signal processing
+     */
+    private SoundProcessor soundProcessor;
+    /**
+     * latency of transmissions
+     */
+    private long latencyMS = 0;
 
     /**
      * init consts from context
@@ -63,7 +73,10 @@ public class FirebaseHelper {
         PLAYBACK_STOPPED = context.getResources().getInteger(R.integer.PLAYBACK_STOPPED);
         FILE_UPLOADED = context.getResources().getInteger(R.integer.FILE_UPLOADED);
 
+        absoluteFilePath = context.getExternalCacheDir().getAbsolutePath() + "/" + filename;
+
         recordingHelper = new RecordingHelper(context); // init recording helper
+        soundProcessor = new SoundProcessor(absoluteFilePath, context);
     }
 
     /**
@@ -169,13 +182,15 @@ public class FirebaseHelper {
                     // do nothing
                 } else if(flag == WAKE_UP) {    // computer tells phone to wake up, start record
                     // begin recording
-                    recordingHelper.startRecording(() -> {
-                        // note the time
-                        timeStamp1 = System.currentTimeMillis();
-                        // update flag
-                        updateFlag(user, () -> Log.d("MY_FIREBASE", "Flag set to RECORDING_STARTED"), RECORDING_STARTED);
-                    },
-                            "recording.wav");
+                    recordingHelper.startRecording(
+                            () -> {
+                                // note the time
+                                timeStamp1 = System.currentTimeMillis();
+                                // update flag
+                                updateFlag(user, () -> Log.d("MY_FIREBASE", "Flag set to RECORDING_STARTED"), RECORDING_STARTED);
+                            },
+                            filename
+                    );
 
                 } else if(flag == RECORDING_STARTED) {  // phone has begun recording
                     // do nothing
@@ -183,17 +198,17 @@ public class FirebaseHelper {
                     // note the time
                     timeStamp2 = System.currentTimeMillis();
                     // calculate latency in ms
-                    long latencyMS = timeStamp2 - timeStamp1;
-                    // TODO: dont let this run infinitely update latency in db
-//                        updateLatency(
-//                                user,
-//                                () -> Log.d("MY_LATENCY", "Latency set to: " + latencyMS + "ms"),
-//                                latencyMS
-//                        );
-                } else if(flag == PLAYBACK_STOPPED) {   // playback stopped, upload file
+                    latencyMS = timeStamp2 - timeStamp1;
+                } else if(flag == PLAYBACK_STOPPED) {   // playback stopped, process signal
+                    AtomicReference<Double> slope = new AtomicReference<>((double) 0);
                     recordingHelper.stopRecording(
-                            () -> uploadFile(user, context, "recording.wav")
+                            () -> {
+                                slope.set(soundProcessor.getDominantSlope(latencyMS));
+                            }
+                            //uploadFile(user, context)
+
                     );
+
                 } else if(flag == FILE_UPLOADED) {
                     // do nothing
                 }
@@ -208,7 +223,7 @@ public class FirebaseHelper {
      * @param user - firebase user
      * @param context - app context
      */
-    private void uploadFile(final FirebaseUser user, final Context context, final String filename) {
+    private void uploadFile(final FirebaseUser user, final Context context) {
         //  upload file to storage, if successful, update flag
         // get base storage reference
         FirebaseStorage storage = FirebaseStorage.getInstance();

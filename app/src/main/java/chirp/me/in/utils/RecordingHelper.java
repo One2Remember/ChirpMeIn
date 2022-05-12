@@ -1,17 +1,6 @@
 package chirp.me.in.utils;
 
 import android.content.Context;
-import android.media.MediaRecorder;
-import android.os.Environment;
-import android.util.Log;
-
-import java.io.File;
-import java.io.IOException;
-
-import cafe.adriel.androidaudioconverter.AndroidAudioConverter;
-import cafe.adriel.androidaudioconverter.callback.IConvertCallback;
-import cafe.adriel.androidaudioconverter.callback.ILoadCallback;
-import cafe.adriel.androidaudioconverter.model.AudioFormat;
 import chirp.me.in.base.OnSuccessCallback;
 
 public class RecordingHelper {
