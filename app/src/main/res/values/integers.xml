@@ -6,5 +6,6 @@
     <integer name="RECORDING_STARTED">2</integer>
     <integer name="PLAYBACK_STARTED">3</integer>
     <integer name="PLAYBACK_STOPPED">4</integer>
-    <integer name="FILE_UPLOADED">5</integer>
+    <integer name="PERFORMING_ANALYSIS">5</integer>
+    <integer name="METRICS_UPLOADED">6</integer>
 </resources>

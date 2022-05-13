@@ -25,7 +25,6 @@ public class SoundProcessor {
     private final Context context;
 
     private final boolean DEBUG = false;
-
     /**
      * fft window size
      */
@@ -38,6 +37,10 @@ public class SoundProcessor {
      * fft window step
      */
     private final int windowStep = windowSize / overlap;
+    /**
+     * scaling factor for cropping (SIGMA * latencyMS from start and end of recording)
+     */
+    private final double SIGMA = 1.4;
 
     /**
      * construct sound processor from file path
@@ -92,16 +95,14 @@ public class SoundProcessor {
     }
 
     /**
-     * extract the slope (in Hz/s) of the dominant frequency curve
+     * Perform linear regression on data given latency and return object (which can be used to
+     * retrieve slope and r^2, along with other data. See LinearRegression class for more details)
      * @param latencyMS the latency of the transmission to use in cropping
      * @return slope (Hz/s)
      */
-    public double getDominantSlope(final long latencyMS) {
-        double slope = 0.0;
-
+    public LinearRegression getLinearRegression(final long latencyMS) {
+        //double slope = 0.0;
         double[] rawData = getByteArray();
-        int length = rawData.length;
-
         double samplingRate = getSR();
         double time_resolution = windowSize / samplingRate;
         double frequency_resolution = samplingRate / windowSize;
@@ -113,38 +114,25 @@ public class SoundProcessor {
         Log.d("MY_SOUND_PROCESSING", "highest_detectable_frequency: " + highest_detectable_frequency + " Hz");
         Log.d("MY_SOUND_PROCESSING", "lowest_detectable_frequency:  " + lowest_detectable_frequency + " Hz");
 
-
         //initialize plotData array
+        int length = rawData.length;
         int nX = (length - windowSize) / windowStep;
         int nY = windowSize / 2 + 1;
         double[][] plotData = new double[nX][nY];
 
         //apply FFT and find MAX and MIN amplitudes
-
         double maxAmp = Double.MIN_VALUE;
         double minAmp = Double.MAX_VALUE;
-
         double amp_square;
-
-        double[] inputImag = new double[length];
-
+        double[] inputImag = new double[length];    // imaginary vector is all 0's
         for (int i = 0; i < nX; i++) {
             Arrays.fill(inputImag, 0.0);
+            // compute FFT on time slice
             double[] WS_array = FFT.fft(Arrays.copyOfRange(rawData, i * windowStep, i * windowStep + windowSize), inputImag, true);
+            // perform thresholding to obtain data ready for regression
             for (int j = 0; j < nY; j++){
                 assert WS_array != null;
                 amp_square = (WS_array[2*j]*WS_array[2*j]) + (WS_array[2*j+1]*WS_array[2*j+1]);
-
-
-                // Known working (weird black bar then pink with black line)
-                // select threshold based on the expected spectrum amplitudes
-                // e.g. 80dB below your signal's spectrum peak amplitude
-                // double threshold = 1.0;
-                // limit values and convert to dB
-                //plotData[i][nY-j-1] = 10 * Math.log10(Math.max(amp_square,threshold));
-
-
-                // Known working (dark, with bright pink line)
                 double threshold = 1.0;
                 plotData[i][nY-j-1] = Math.max(amp_square,threshold);
 
@@ -157,12 +145,7 @@ public class SoundProcessor {
             }
         }
 
-        Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
-        Log.d("MY_SOUND_PROCESSING", "Maximum amplitude: " + maxAmp);
-        Log.d("MY_SOUND_PROCESSING", "Minimum amplitude: " + minAmp);
-        Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
-
-        // Normalization
+        // Normalize data by max/min amplitudes
         double diff = maxAmp - minAmp;
         for (int i = 0; i < nX; i++){
             for (int j = 0; j < nY; j++){
@@ -170,19 +153,7 @@ public class SoundProcessor {
             }
         }
 
-        // extract max frequency indices
-//        int[] maxFreqIndices = new int[plotData[0].length];
-//        double tempMax;
-//        for(int c = 0; c < plotData[0].length; c++) {
-//            tempMax = Double.MIN_VALUE;
-//            for(int r = 0; r < plotData.length; r++) {
-//                if(plotData[r][c] > tempMax) {
-//                    tempMax = plotData[r][c];
-//                    maxFreqIndices[c] = r;
-//                }
-//            }
-//        }
-        // attempt 2
+        // extract indices of max frequency from each time slice
         int[] maxFreqIndices = new int[plotData.length];
         double tempMax;
         for(int r = 0; r < plotData.length; r++) {
@@ -195,58 +166,40 @@ public class SoundProcessor {
             }
         }
 
-//        // extract max frequency indices with mask
-//        int[] maxFreqIndices = new int[plotData[0].length];
-//        Arrays.fill(maxFreqIndices, 0);
-//        double tempMax;
-//        for (int c = 0; c < plotData[0].length; c++) {
-//            tempMax = Double.MIN_VALUE;
-//
-//            // instead move with odd length mask
-//            for(int r = 3; r < plotData.length - 3; r++) {
-//                if(plotData[r][c] > tempMax) {
-//                    tempMax = plotData[r][c];
-//                    maxFreqIndices[c] = r;
-//                }
-//            }
-//        }
-
-        // calculate max frequencies
+        // calculate max frequencies from max frequency indices
         double[] maxFreqs = new double[maxFreqIndices.length];
         for(int i = 0; i < maxFreqs.length; i++) {
-            //maxFreqs[i] =  (((double) maxFreqIndices[i] / (double) plotData.length) * highest_detectable_frequency);
+            // have to subtract from 1 since we indexed in reverse when populating plotData
             maxFreqs[i] =  highest_detectable_frequency * (1.0 - ((double) maxFreqIndices[i] / (double) plotData.length));
         }
 
-        // calculate time stamps
-        double totalTime = (double) length / samplingRate;
-        Log.d("MY_TIME", "total length is: " + totalTime);
+        // calculate time stamps associated with those frequencies
+        double totalTimeS = (double) length / samplingRate;
+        Log.d("MY_TIME", "total length is: " + totalTimeS);
         double[] timeStamps = new double[plotData.length] ;
         for(int i = 0; i < maxFreqs.length; i++) {
-            timeStamps[i] = totalTime * ((double) i / maxFreqs.length);
+            timeStamps[i] = totalTimeS * ((double) i / maxFreqs.length);
         }
 
-        // crop indices for frequencies and timestamps
-        float startCrop = 0.4f; // how much to crop off start
-        float endCrop = 0.01f;   // how much to crop off end
-        int startIndex = (int) (maxFreqIndices.length * startCrop);
-        int endIndex = (int) ((maxFreqIndices.length - 1) * (1 - endCrop));
+        // crop indices for frequencies and timestamps based on latency and SIGMA (scaling factor)
+        double crop = latencyMS / (totalTimeS * 1000) * SIGMA;
+        int startIndex = (int) (maxFreqIndices.length * crop);
+        int endIndex = (int) ((maxFreqIndices.length - 1) * (1 - crop));
         double[] maxFreqsCropped = Arrays.copyOfRange(maxFreqs, startIndex, endIndex);
         double[] timeStampsCropped = Arrays.copyOfRange(timeStamps, startIndex, endIndex);
 
-        // perform linear regression to retrieve slope
+        // perform linear regression on cropped data to retrieve slope
         LinearRegression regression = new LinearRegression(timeStampsCropped, maxFreqsCropped);
-        slope = regression.slope();
+//        slope = regression.slope();
+//
+//        // log r^2
+//        double r2 = regression.R2();
+//        Log.d("MY_REGRESSION", "Slope: " + slope + ", r^2 value: " + r2);
 
-        double r2 = regression.R2();
-        Log.d("MY_REGRESSION", "Slope: " + slope + ", r^2 value: " + r2);
-
-
-
-        // write image to file
+        // write image to file (not necessary for analysis)
         saveBitmapAsPNG(convertToBitmap(plotData), "spectrogram.png");
 
-        return slope;
+        return regression;
     }
 
 
@@ -277,38 +230,17 @@ public class SoundProcessor {
         }
     }
 
-
-
-
-
     /**
-     * convert 2d array of doubles to bitmap with HSV color encoding
+     * convert 2d array of doubles to bitmap with ARGB color encoding (from blue to red)
      * @param imageData 2d array of doubles between 0 and 1
      */
     public Bitmap convertToBitmap(double[][] imageData) {
         Paint paint = new Paint();
         Bitmap bitmap = Bitmap.createBitmap(imageData.length, imageData[0].length, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-//        float[] hsvColors = new float[3];
-//        hsvColors[1] = 1.0f;
-//        hsvColors[2] = 1.0f;
-//        for(int r = 0; r < imageData.length; r++) {
-//            for(int c = 0; c < imageData[0].length; c++) {
-//                hsvColors[0] = (1.0f - (float) imageData[r][c]) * 360.0f;
-//                paint.setColor(Color.HSVToColor(hsvColors));
-//                canvas.drawPoint(r, c, paint);
-//            }
-//        }
         RGB rgb;
-//        RGB blue = new RGB(0, 0, 255);
-//        RGB red = new RGB(255, 0, 0);
         for(int r = 0; r < imageData.length; r++) {
             for(int c = 0; c < imageData[0].length; c++) {
-//                rgb = RGB.getSpectrumRGB(
-//                        blue,
-//                        red,
-//                        (float) imageData[r][c]
-//                );
                 rgb = RGB.getSpectrumRedBlue((float) imageData[r][c]);
                 paint.setARGB(255, rgb.r, rgb.g, rgb.b);
                 canvas.drawPoint(r, c, paint);
@@ -327,6 +259,10 @@ public class SoundProcessor {
         return SR;
     }
 
+    /**
+     * get raw data byte array from wav file
+     * @return byte array with raw data
+     */
     public double[] getByteArray (){
         byte[] data_raw = Arrays.copyOfRange(entireFileData, 44, entireFileData.length);
         int totalLength = data_raw.length;
@@ -344,46 +280,18 @@ public class SoundProcessor {
         return data_mono;
     }
 
-
     /**
-     * RGB values (each should be in [0,255])
+     * for doing RGB calculations for spectrogram gradient
      */
     private static class RGB {
         int r;
         int g;
         int b;
 
-        public RGB() {
-            r = 0;
-            g = 0;
-            b = 0;
-        }
-
         public RGB(int r, int g, int b) {
             this.r = r;
             this.g = g;
             this.b = b;
-        }
-
-        public RGB(RGB rgb) {
-            this.r = rgb.r;
-            this.g = rgb.g;
-            this.b = rgb.b;
-        }
-
-        /**
-         * Get gradient color between two RGB colors
-         * @param color1 - color 1 in gradient
-         * @param color2 - color 2 in gradient
-         * @param val - value in [0,1] to determine how much of 1 and how much of 2 to mix
-         * @return RGB mix of the two
-         */
-        private static RGB getSpectrumRGB(final RGB color1, final RGB color2, final float val) {
-            return new RGB(
-                    Math.abs((int)((color2.r - color1.r) * val)),
-                    Math.abs((int)((color2.g - color1.g) * val)),
-                    Math.abs((int)((color2.b - color1.b) * val))
-            );
         }
 
         /**

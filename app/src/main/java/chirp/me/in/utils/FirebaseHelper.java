@@ -4,6 +4,10 @@ import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
+
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.DocumentSnapshot;
@@ -29,8 +33,8 @@ public class FirebaseHelper {
     private final int RECORDING_STARTED;
     private final int PLAYBACK_STARTED;
     private final int PLAYBACK_STOPPED;
-    private final int FILE_UPLOADED;
-
+    private final int PERFORMING_ANALYSIS;
+    private final int METRICS_UPLOADED;
 
     /**
      * filename used for .wav file
@@ -71,7 +75,8 @@ public class FirebaseHelper {
         RECORDING_STARTED = context.getResources().getInteger(R.integer.RECORDING_STARTED);
         PLAYBACK_STARTED = context.getResources().getInteger(R.integer.PLAYBACK_STARTED);
         PLAYBACK_STOPPED = context.getResources().getInteger(R.integer.PLAYBACK_STOPPED);
-        FILE_UPLOADED = context.getResources().getInteger(R.integer.FILE_UPLOADED);
+        PERFORMING_ANALYSIS = context.getResources().getInteger(R.integer.PERFORMING_ANALYSIS);
+        METRICS_UPLOADED = context.getResources().getInteger(R.integer.METRICS_UPLOADED);
 
         absoluteFilePath = context.getExternalCacheDir().getAbsolutePath() + "/" + filename;
 
@@ -117,22 +122,45 @@ public class FirebaseHelper {
     }
 
     /**
-     * update user's latency on firebase
+     * update user's metrics for detected sound in firebase
      * @param user - firebase user
      * @param onSuccessCallback - to call on success
-     * @param latency - initial latency between two communications
+     * @param slope - slope of chirp in frequency domain
+     * @param r2 - r^2 of that regression result
      */
-    public void updateLatency(final FirebaseUser user, final OnSuccessCallback onSuccessCallback, long latency) {
+    public void updateMetrics(final FirebaseUser user, final OnSuccessCallback onSuccessCallback, double slope, double r2) {
         FirebaseFirestore db = FirebaseFirestore.getInstance();
         DocumentReference userDoc = db.collection("users").document(user.getUid());
 
-        // set the 'latency' field to latency
-        userDoc.update("latencyMS", latency)
-                .addOnSuccessListener(unused -> onSuccessCallback.OnSuccess())
-                .addOnFailureListener(e ->
-                        Log.d("MY_FIREBASE", "Failed to update user: " + user.getUid() +
-                                "to flag: " + latency));
+        // set the slope field to slope
+        userDoc.update("slope", slope)
+                .addOnSuccessListener(unused ->
+                        // set the r2 field to r2
+                        userDoc.update("r2", r2)
+                                .addOnSuccessListener(unused1 -> onSuccessCallback.OnSuccess())
+                                .addOnFailureListener(e -> Log.d("MY_FIREBASE", "Failed to update user: " + user.getUid() +
+                                " r2 to: " + r2)))
+                .addOnFailureListener(e -> Log.d("MY_FIREBASE", "Failed to update user: " + user.getUid() +
+                                " slope to: " + slope));
     }
+
+//    /**
+//     * update user's latency on firebase
+//     * @param user - firebase user
+//     * @param onSuccessCallback - to call on success
+//     * @param latency - initial latency between two communications
+//     */
+//    public void updateLatency(final FirebaseUser user, final OnSuccessCallback onSuccessCallback, long latency) {
+//        FirebaseFirestore db = FirebaseFirestore.getInstance();
+//        DocumentReference userDoc = db.collection("users").document(user.getUid());
+//
+//        // set the 'latency' field to latency
+//        userDoc.update("latencyMS", latency)
+//                .addOnSuccessListener(unused -> onSuccessCallback.OnSuccess())
+//                .addOnFailureListener(e ->
+//                        Log.d("MY_FIREBASE", "Failed to update user: " + user.getUid() +
+//                                "to flag: " + latency));
+//    }
 
     /**
      * add a snapshot listener to a user's document in the firestore, performs callback when it is invoked
@@ -200,16 +228,32 @@ public class FirebaseHelper {
                     // calculate latency in ms
                     latencyMS = timeStamp2 - timeStamp1;
                 } else if(flag == PLAYBACK_STOPPED) {   // playback stopped, process signal
-                    AtomicReference<Double> slope = new AtomicReference<>((double) 0);
-                    recordingHelper.stopRecording(
-                            () -> {
-                                slope.set(soundProcessor.getDominantSlope(latencyMS));
-                            }
-                            //uploadFile(user, context)
-
-                    );
-
-                } else if(flag == FILE_UPLOADED) {
+//                    AtomicReference<Double> slope = new AtomicReference<>((double) 0);
+//                    recordingHelper.stopRecording(
+//                            () -> {
+//                                slope.set(soundProcessor.getDominantSlope(latencyMS));
+//                            }
+//                      );
+                    final LinearRegression[] regression = new LinearRegression[1];
+                    // stop recording audio then perform linear regression on FFT data
+                    recordingHelper.stopRecording(() -> {
+                        regression[0] = soundProcessor.getLinearRegression(latencyMS);
+                        // set flag to PERFORMING_ANALYSIS to avoid firebase looping on snapshot listener
+                        updateFlag(
+                                user,
+                                // on update flag success, update slope and r^2 from regression
+                                () -> {
+                                    Log.d("MY_FIREBASE", "Flag set to PERFORMING_ANALYSIS");
+                                    // update metric in firebase then set flag to METRICS_UPLOADED
+                                    updateMetrics(user,
+                                            () -> Log.d("MY_FIREBASE", "Regression metrics uploaded to user profile"),
+                                            regression[0].slope(),
+                                            regression[0].R2()
+                                    );
+                                },
+                                PERFORMING_ANALYSIS);
+                    });
+                } else if(flag == PERFORMING_ANALYSIS) {
                     // do nothing
                 }
             } else {
@@ -218,61 +262,31 @@ public class FirebaseHelper {
         });
     }
 
-    /**
-     * upload recording "recording.mp3" from local file to storage "recordings/[UID]/recording.mp3"
-     * @param user - firebase user
-     * @param context - app context
-     */
-    private void uploadFile(final FirebaseUser user, final Context context) {
-        //  upload file to storage, if successful, update flag
-        // get base storage reference
-        FirebaseStorage storage = FirebaseStorage.getInstance();
-        // get my cloud storage reference
-        StorageReference recordingRef = storage.getReference().child("recordings/" + user.getUid() + "/" + filename);;
-
-        // get local storage ref
-        Uri recordingFile = Uri.fromFile(new File(context.getExternalCacheDir().getAbsolutePath() + "/" + filename));
-        // create upload task
-        UploadTask uploadTask = recordingRef.putFile(recordingFile);
-        // add failure listener
-        // add success listener to update flag
-        uploadTask.addOnFailureListener(exception -> {
-            // Handle unsuccessful uploads
-            Log.d("MY_STORAGE", "Failed to upload file");
-        }).addOnSuccessListener(taskSnapshot -> updateFlag(
-                user,
-                () -> Log.d("MY_FLAG", "Flag updated to: " + FILE_UPLOADED),
-                FILE_UPLOADED
-        ));
-    }
-
 //    /**
-//     * TODO: send token to user profile
-//     * @param token - to send
+//     * upload recording "recording.mp3" from local file to storage "recordings/[UID]/recording.mp3"
+//     * @param user - firebase user
+//     * @param context - app context
 //     */
-//    public void sendRegistrationTokenToServer(final String token) {
+//    private void uploadFile(final FirebaseUser user, final Context context) {
+//        //  upload file to storage, if successful, update flag
+//        // get base storage reference
+//        FirebaseStorage storage = FirebaseStorage.getInstance();
+//        // get my cloud storage reference
+//        StorageReference recordingRef = storage.getReference().child("recordings/" + user.getUid() + "/" + filename);;
 //
-//    }
-//
-//    /**
-//     * Gets firebase messaging token
-//     */
-//    public void initToken() {
-//        FirebaseMessaging.getInstance().getToken()
-//                .addOnCompleteListener(task -> {
-//                    if (!task.isSuccessful()) {
-//                        Log.w("MY_TOKEN", "Fetching FCM registration token failed", task.getException());
-//                        return;
-//                    }
-//
-//                    // Get new FCM registration token
-//                    String token = task.getResult();
-//
-//                    // Log token
-//                    Log.d("MY_TOKEN", "Token: " + token);
-//
-//                    // send token to user profile
-//                    sendRegistrationTokenToServer(token);
-//                });
+//        // get local storage ref
+//        Uri recordingFile = Uri.fromFile(new File(context.getExternalCacheDir().getAbsolutePath() + "/" + filename));
+//        // create upload task
+//        UploadTask uploadTask = recordingRef.putFile(recordingFile);
+//        // add failure listener
+//        // add success listener to update flag
+//        uploadTask.addOnFailureListener(exception -> {
+//            // Handle unsuccessful uploads
+//            Log.d("MY_STORAGE", "Failed to upload file");
+//        }).addOnSuccessListener(taskSnapshot -> updateFlag(
+//                user,
+//                () -> Log.d("MY_FLAG", "Flag updated to: " + FILE_UPLOADED),
+//                FILE_UPLOADED
+//        ));
 //    }
 }
