@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.media.MediaMetadataRetriever;
 import android.os.Environment;
 import android.util.Log;
 
@@ -15,6 +16,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
+import chirp.me.in.R;
+
 /**
  * for doing fft and making spectrogram, code modified from
  *  https://stackoverflow.com/questions/39295589/creating-spectrogram-from-wav-using-fft-in-java
@@ -24,7 +27,7 @@ public class SoundProcessor {
 
     private final Context context;
 
-    private final boolean DEBUG = false;
+    private boolean DEBUG;
     /**
      * fft window size
      */
@@ -43,12 +46,27 @@ public class SoundProcessor {
     private final double SIGMA = 1.4;
 
     /**
+     * experimentally determined scaling factor for frequency range
+     */
+    private final double FREQ_SIGMA = 1.1835;
+    /**
+     * wav file
+     */
+    private final File file;
+
+    /**
      * construct sound processor from file path
      * @param wavFilePath
      */
     public SoundProcessor(final String wavFilePath, final Context context)  {
         this.context = context;
-        File file = new File(wavFilePath);
+
+        // check if we are debugging
+        DEBUG = context.getResources().getBoolean(R.bool.DEBUG);
+
+        file = new File(wavFilePath);
+
+        // parse file into byte array
         FileInputStream fileInputStream;
         entireFileData = new byte[(int) file.length()];
         try
@@ -83,13 +101,13 @@ public class SoundProcessor {
             //extract Bit Per Second (BPS/Bit depth)
             int BPS = entireFileData[34];
 
-            System.out.println("---------------------------------------------------");
-            System.out.println("File path:          " + wavFilePath);
-            System.out.println("File format:        " + format);
-            System.out.println("Number of channels: " + noOfChannels_str);
-            System.out.println("Sampling rate:      " + SR);
-            System.out.println("Bit depth:          " + BPS);
-            System.out.println("---------------------------------------------------");
+            Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
+            Log.d("MY_SOUND_PROCESSING", "File path:          " + wavFilePath);
+            Log.d("MY_SOUND_PROCESSING", "File format:        " + format);
+            Log.d("MY_SOUND_PROCESSING", "Number of channels: " + noOfChannels_str);
+            Log.d("MY_SOUND_PROCESSING", "Sampling rate:      " + SR);
+            Log.d("MY_SOUND_PROCESSING", "Bit depth:          " + BPS);
+            Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
 
         }
     }
@@ -101,7 +119,6 @@ public class SoundProcessor {
      * @return slope (Hz/s)
      */
     public LinearRegression getLinearRegression(final long latencyMS) {
-        //double slope = 0.0;
         double[] rawData = getByteArray();
         double samplingRate = getSR();
         double time_resolution = windowSize / samplingRate;
@@ -109,10 +126,14 @@ public class SoundProcessor {
         double highest_detectable_frequency = samplingRate / 2.0;
         double lowest_detectable_frequency = 5.0 * samplingRate / windowSize;
 
-        Log.d("MY_SOUND_PROCESSING", "time_resolution:              " + time_resolution * 1000 + " ms");
-        Log.d("MY_SOUND_PROCESSING", "frequency_resolution:         " + frequency_resolution + " Hz");
-        Log.d("MY_SOUND_PROCESSING", "highest_detectable_frequency: " + highest_detectable_frequency + " Hz");
-        Log.d("MY_SOUND_PROCESSING", "lowest_detectable_frequency:  " + lowest_detectable_frequency + " Hz");
+        if(DEBUG) {
+            Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
+            Log.d("MY_SOUND_PROCESSING", "time_resolution:              " + time_resolution * 1000 + " ms");
+            Log.d("MY_SOUND_PROCESSING", "frequency_resolution:         " + frequency_resolution + " Hz");
+            Log.d("MY_SOUND_PROCESSING", "highest_detectable_frequency: " + highest_detectable_frequency + " Hz");
+            Log.d("MY_SOUND_PROCESSING", "lowest_detectable_frequency:  " + lowest_detectable_frequency + " Hz");
+            Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
+        }
 
         //initialize plotData array
         int length = rawData.length;
@@ -167,22 +188,22 @@ public class SoundProcessor {
         }
 
         // calculate max frequencies from max frequency indices
-        double[] maxFreqs = new double[maxFreqIndices.length];
-        for(int i = 0; i < maxFreqs.length; i++) {
+        double[] maxFreqs = new double[plotData.length];
+        for(int i = 0; i < plotData.length; i++) {
             // have to subtract from 1 since we indexed in reverse when populating plotData
-            maxFreqs[i] =  highest_detectable_frequency * (1.0 - ((double) maxFreqIndices[i] / (double) plotData.length));
+            maxFreqs[i] = highest_detectable_frequency * (1.0 - ((double) maxFreqIndices[i] / plotData[0].length));
         }
 
         // calculate time stamps associated with those frequencies
         double totalTimeS = (double) length / samplingRate;
-        Log.d("MY_TIME", "total length is: " + totalTimeS);
+        Log.d("MY_TIME", "Duration in MS according to length over samplingRate: " + (totalTimeS * 1000.0));
         double[] timeStamps = new double[plotData.length] ;
-        for(int i = 0; i < maxFreqs.length; i++) {
-            timeStamps[i] = totalTimeS * ((double) i / maxFreqs.length);
+        for(int i = 0; i < plotData.length; i++) {
+            timeStamps[i] = totalTimeS * ((double) i / plotData.length);
         }
 
         // crop indices for frequencies and timestamps based on latency and SIGMA (scaling factor)
-        double crop = latencyMS / (totalTimeS * 1000) * SIGMA;
+        double crop = latencyMS * SIGMA / (totalTimeS * 1000) ;
         int startIndex = (int) (maxFreqIndices.length * crop);
         int endIndex = (int) ((maxFreqIndices.length - 1) * (1 - crop));
         double[] maxFreqsCropped = Arrays.copyOfRange(maxFreqs, startIndex, endIndex);
@@ -190,14 +211,11 @@ public class SoundProcessor {
 
         // perform linear regression on cropped data to retrieve slope
         LinearRegression regression = new LinearRegression(timeStampsCropped, maxFreqsCropped);
-//        slope = regression.slope();
-//
-//        // log r^2
-//        double r2 = regression.R2();
-//        Log.d("MY_REGRESSION", "Slope: " + slope + ", r^2 value: " + r2);
 
-        // write image to file (not necessary for analysis)
-        saveBitmapAsPNG(convertToBitmap(plotData), "spectrogram.png");
+        // if debug, write image to file (not necessary for analysis)
+        if(DEBUG){
+            saveBitmapAsPNG(convertToBitmap(plotData), "spectrogram.png");
+        }
 
         return regression;
     }

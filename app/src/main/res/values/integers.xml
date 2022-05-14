@@ -8,4 +8,6 @@
     <integer name="PLAYBACK_STOPPED">4</integer>
     <integer name="PERFORMING_ANALYSIS">5</integer>
     <integer name="METRICS_UPLOADED">6</integer>
+    <integer name="AUTH_SUCCESS">7</integer>
+    <integer name="AUTH_FAILURE">8</integer>
 </resources>

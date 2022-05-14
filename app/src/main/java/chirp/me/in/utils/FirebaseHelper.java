@@ -2,6 +2,7 @@ package chirp.me.in.utils;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Environment;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -35,6 +36,17 @@ public class FirebaseHelper {
     private final int PLAYBACK_STOPPED;
     private final int PERFORMING_ANALYSIS;
     private final int METRICS_UPLOADED;
+    private final int AUTH_SUCCESS;
+    private final int AUTH_FAILURE;
+    private final boolean DEBUG;
+    /**
+     * greatest percent deviation we allow between true slope and regression calculated slope
+     */
+    private final double DELTA = 0.05;
+    /**
+     * r^2 threshold we must pass to allow for auth success
+     */
+    private final double TAU = 0.95;
 
     /**
      * filename used for .wav file
@@ -77,11 +89,13 @@ public class FirebaseHelper {
         PLAYBACK_STOPPED = context.getResources().getInteger(R.integer.PLAYBACK_STOPPED);
         PERFORMING_ANALYSIS = context.getResources().getInteger(R.integer.PERFORMING_ANALYSIS);
         METRICS_UPLOADED = context.getResources().getInteger(R.integer.METRICS_UPLOADED);
+        AUTH_SUCCESS = context.getResources().getInteger(R.integer.AUTH_SUCCESS);
+        AUTH_FAILURE = context.getResources().getInteger(R.integer.AUTH_FAILURE);
+        DEBUG = context.getResources().getBoolean(R.bool.DEBUG);
 
         absoluteFilePath = context.getExternalCacheDir().getAbsolutePath() + "/" + filename;
 
         recordingHelper = new RecordingHelper(context); // init recording helper
-        soundProcessor = new SoundProcessor(absoluteFilePath, context);
     }
 
     /**
@@ -133,7 +147,7 @@ public class FirebaseHelper {
         DocumentReference userDoc = db.collection("users").document(user.getUid());
 
         // set the slope field to slope
-        userDoc.update("slope", slope)
+        userDoc.update("calculatedSlope", slope)
                 .addOnSuccessListener(unused ->
                         // set the r2 field to r2
                         userDoc.update("r2", r2)
@@ -228,31 +242,48 @@ public class FirebaseHelper {
                     // calculate latency in ms
                     latencyMS = timeStamp2 - timeStamp1;
                 } else if(flag == PLAYBACK_STOPPED) {   // playback stopped, process signal
-//                    AtomicReference<Double> slope = new AtomicReference<>((double) 0);
-//                    recordingHelper.stopRecording(
-//                            () -> {
-//                                slope.set(soundProcessor.getDominantSlope(latencyMS));
-//                            }
-//                      );
-                    final LinearRegression[] regression = new LinearRegression[1];
-                    // stop recording audio then perform linear regression on FFT data
-                    recordingHelper.stopRecording(() -> {
-                        regression[0] = soundProcessor.getLinearRegression(latencyMS);
-                        // set flag to PERFORMING_ANALYSIS to avoid firebase looping on snapshot listener
-                        updateFlag(
-                                user,
-                                // on update flag success, update slope and r^2 from regression
-                                () -> {
-                                    Log.d("MY_FIREBASE", "Flag set to PERFORMING_ANALYSIS");
-                                    // update metric in firebase then set flag to METRICS_UPLOADED
-                                    updateMetrics(user,
-                                            () -> Log.d("MY_FIREBASE", "Regression metrics uploaded to user profile"),
-                                            regression[0].slope(),
-                                            regression[0].R2()
+                    // set flag to PERFORMING_ANALYSIS to avoid firebase looping on snapshot listener
+                    updateFlag(
+                            user,
+                            // on update flag success, update slope and r^2 from regression
+                            () -> {
+                                Log.d("MY_FIREBASE", "Flag set to PERFORMING_ANALYSIS");
+                                final LinearRegression[] regression = new LinearRegression[1];
+                                // stop recording audio then perform linear regression on FFT data
+                                recordingHelper.stopRecording(() -> {
+                                    soundProcessor = new SoundProcessor(absoluteFilePath, context);
+                                    // get linear regression (slope and r^2) on data
+                                    regression[0] = soundProcessor.getLinearRegression(latencyMS);
+                                    Log.d("MY_REGRESSION", "Slope: " + regression[0].slope() + ", R^2: " + regression[0].R2());
+
+                                    // get true slope value
+                                    double trueSlope;
+                                    Object s = snapshot.get("slope", Double.TYPE);
+                                    assert s != null;
+                                    trueSlope = (double) s;
+
+                                    // calculate percent difference as abs((true-measured)/true)
+                                    double percentDifference = Math.abs((trueSlope - regression[0].slope()) / trueSlope);
+                                    // succeed if r^2 > 0.95 and 1 - ratio < 0.05
+                                    int authResult = regression[0].R2() > TAU && 1 - percentDifference < DELTA ? AUTH_SUCCESS : AUTH_FAILURE;
+
+                                    // upload recording.wav and spectrogram.png files to firebase
+                                    if(DEBUG){
+                                        uploadFile(user, context, "recordings", "recording.wav", context.getExternalCacheDir().getAbsolutePath());
+                                        uploadFile(user, context, "recordings", "spectrogram.png", Environment.getExternalStorageDirectory().getAbsolutePath());
+                                    }
+
+                                    // update flag based on authResult
+                                    updateFlag(
+                                            user,
+                                            () -> Log.d("MY_REGRESSION", "Flag set to " + (authResult == AUTH_FAILURE ? "AUTH_FAILURE" : "AUTH_SUCCESS")),
+                                            authResult
                                     );
-                                },
-                                PERFORMING_ANALYSIS);
-                    });
+                                });
+                            },
+                            PERFORMING_ANALYSIS
+                    );
+
                 } else if(flag == PERFORMING_ANALYSIS) {
                     // do nothing
                 }
@@ -262,31 +293,32 @@ public class FirebaseHelper {
         });
     }
 
-//    /**
-//     * upload recording "recording.mp3" from local file to storage "recordings/[UID]/recording.mp3"
-//     * @param user - firebase user
-//     * @param context - app context
-//     */
-//    private void uploadFile(final FirebaseUser user, final Context context) {
-//        //  upload file to storage, if successful, update flag
-//        // get base storage reference
-//        FirebaseStorage storage = FirebaseStorage.getInstance();
-//        // get my cloud storage reference
-//        StorageReference recordingRef = storage.getReference().child("recordings/" + user.getUid() + "/" + filename);;
-//
-//        // get local storage ref
-//        Uri recordingFile = Uri.fromFile(new File(context.getExternalCacheDir().getAbsolutePath() + "/" + filename));
-//        // create upload task
-//        UploadTask uploadTask = recordingRef.putFile(recordingFile);
-//        // add failure listener
-//        // add success listener to update flag
-//        uploadTask.addOnFailureListener(exception -> {
-//            // Handle unsuccessful uploads
-//            Log.d("MY_STORAGE", "Failed to upload file");
-//        }).addOnSuccessListener(taskSnapshot -> updateFlag(
-//                user,
-//                () -> Log.d("MY_FLAG", "Flag updated to: " + FILE_UPLOADED),
-//                FILE_UPLOADED
-//        ));
-//    }
+    /**
+     * upload recording "recording.mp3" from local file to storage "recordings/[UID]/recording.mp3"
+     * @param user - firebase user
+     * @param context - app context
+     */
+    private void uploadFile(final FirebaseUser user, final Context context, final String bucketName, final String filename, final String localPath) {
+        //  upload file to storage, if successful, update flag
+        // get base storage reference
+        FirebaseStorage storage = FirebaseStorage.getInstance();
+        // get my cloud storage reference
+        StorageReference recordingRef = storage.getReference().child(bucketName + "/" + user.getUid() + "/" + filename);;
+
+        // get local storage ref
+        Uri recordingFile = Uri.fromFile(new File(localPath + "/" + filename));
+        // create upload task
+        UploadTask uploadTask = recordingRef.putFile(recordingFile);
+        // add failure listener
+        // add success listener to update flag
+        uploadTask.addOnFailureListener(exception -> {
+            // Handle unsuccessful uploads
+            Log.d("MY_STORAGE", "Failed to upload file");
+        }).addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+            @Override
+            public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+                Log.d("MY_UPLOAD", "Successful");
+            }
+        });
+    }
 }
