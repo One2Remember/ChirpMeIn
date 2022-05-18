@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.media.MediaMetadataRetriever;
 import android.os.Environment;
 import android.util.Log;
 
@@ -16,18 +15,21 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-import chirp.me.in.R;
+import chirp.me.in.*;
 
 /**
  * for doing fft and making spectrogram, code modified from
  *  https://stackoverflow.com/questions/39295589/creating-spectrogram-from-wav-using-fft-in-java
  */
 public class SoundProcessor {
-    private byte[] entireFileData;
-
-    private final Context context;
-
-    private boolean DEBUG;
+    /**
+     * stores the entire file data read from .wav file
+     */
+    private final byte[] entireFileData;
+    /**
+     * whether system is in debu gmode
+     */
+    private final boolean DEBUG;
     /**
      * fft window size
      */
@@ -37,29 +39,20 @@ public class SoundProcessor {
      */
     private final int overlap = 8;
     /**
-     * fft window step
-     */
-    private final int windowStep = windowSize / overlap;
-    /**
      * scaling factor for cropping (SIGMA * latencyMS from start and end of recording)
      */
     private final double SIGMA = 1.4;
-
     /**
-     * experimentally determined scaling factor for frequency range
-     */
-    private final double FREQ_SIGMA = 1.1835;
-    /**
-     * wav file
+     * wav file local file reference
      */
     private final File file;
 
     /**
      * construct sound processor from file path
-     * @param wavFilePath
+     * @param wavFilePath - path to wav file
+     * @param context - calling context
      */
     public SoundProcessor(final String wavFilePath, final Context context)  {
-        this.context = context;
 
         // check if we are debugging
         DEBUG = context.getResources().getBoolean(R.bool.DEBUG);
@@ -101,14 +94,15 @@ public class SoundProcessor {
             //extract Bit Per Second (BPS/Bit depth)
             int BPS = entireFileData[34];
 
-            Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
-            Log.d("MY_SOUND_PROCESSING", "File path:          " + wavFilePath);
-            Log.d("MY_SOUND_PROCESSING", "File format:        " + format);
-            Log.d("MY_SOUND_PROCESSING", "Number of channels: " + noOfChannels_str);
-            Log.d("MY_SOUND_PROCESSING", "Sampling rate:      " + SR);
-            Log.d("MY_SOUND_PROCESSING", "Bit depth:          " + BPS);
-            Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
-
+            if(DEBUG) {
+                Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
+                Log.d("MY_SOUND_PROCESSING", "File path:          " + wavFilePath);
+                Log.d("MY_SOUND_PROCESSING", "File format:        " + format);
+                Log.d("MY_SOUND_PROCESSING", "Number of channels: " + noOfChannels_str);
+                Log.d("MY_SOUND_PROCESSING", "Sampling rate:      " + SR);
+                Log.d("MY_SOUND_PROCESSING", "Bit depth:          " + BPS);
+                Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
+            }
         }
     }
 
@@ -135,11 +129,11 @@ public class SoundProcessor {
             Log.d("MY_SOUND_PROCESSING", "---------------------------------------------------");
         }
 
-        //initialize plotData array
-        int length = rawData.length;
-        int nX = (length - windowSize) / windowStep;
-        int nY = windowSize / 2 + 1;
-        double[][] plotData = new double[nX][nY];
+        int length = rawData.length;    //initialize plotData array
+        int windowStep = windowSize / overlap;  // calculate fft window step
+        int nX = (length - windowSize) / windowStep;    // calculate x dim of spectrogram
+        int nY = windowSize / 2 + 1;    // calculate y dim of spectrogram
+        double[][] plotData = new double[nX][nY];   // holds plotData
 
         //apply FFT and find MAX and MIN amplitudes
         double maxAmp = Double.MIN_VALUE;
@@ -149,7 +143,13 @@ public class SoundProcessor {
         for (int i = 0; i < nX; i++) {
             Arrays.fill(inputImag, 0.0);
             // compute FFT on time slice
-            double[] WS_array = FFT.fft(Arrays.copyOfRange(rawData, i * windowStep, i * windowStep + windowSize), inputImag, true);
+            double[] WS_array = FFT.fft(
+                    Arrays.copyOfRange(rawData,
+                            i * windowStep,
+                            i * windowStep + windowSize
+                    ),
+                    inputImag,
+                    true);
             // perform thresholding to obtain data ready for regression
             for (int j = 0; j < nY; j++){
                 assert WS_array != null;
@@ -191,16 +191,19 @@ public class SoundProcessor {
         double[] maxFreqs = new double[plotData.length];
         for(int i = 0; i < plotData.length; i++) {
             // have to subtract from 1 since we indexed in reverse when populating plotData
-            maxFreqs[i] = highest_detectable_frequency * (1.0 - ((double) maxFreqIndices[i] / plotData[0].length));
+            maxFreqs[i] = highest_detectable_frequency *
+                    (1.0 - ((double) maxFreqIndices[i] / plotData[0].length));
         }
 
         // calculate time stamps associated with those frequencies
         double totalTimeS = (double) length / samplingRate;
-        Log.d("MY_TIME", "Duration in MS according to length over samplingRate: " + (totalTimeS * 1000.0));
         double[] timeStamps = new double[plotData.length] ;
         for(int i = 0; i < plotData.length; i++) {
             timeStamps[i] = totalTimeS * ((double) i / plotData.length);
         }
+        if(DEBUG)
+            Log.d("MY_TIME", "Duration in MS according to length over samplingRate: "
+                            + (totalTimeS * 1000.0));
 
         // crop indices for frequencies and timestamps based on latency and SIGMA (scaling factor)
         double crop = latencyMS * SIGMA / (totalTimeS * 1000) ;
@@ -216,7 +219,6 @@ public class SoundProcessor {
         if(DEBUG){
             saveBitmapAsPNG(convertToBitmap(plotData), "spectrogram.png");
         }
-
         return regression;
     }
 
@@ -251,6 +253,7 @@ public class SoundProcessor {
     /**
      * convert 2d array of doubles to bitmap with ARGB color encoding (from blue to red)
      * @param imageData 2d array of doubles between 0 and 1
+     * @return Bitmap representing data as spectrogram
      */
     public Bitmap convertToBitmap(double[][] imageData) {
         Paint paint = new Paint();
@@ -269,12 +272,12 @@ public class SoundProcessor {
 
     /**
      * get sampling rate of file
-     * @return sampling rate as int
+     * @return sampling rate as int cast to double
      */
     public double getSR(){
-        ByteBuffer wrapped = ByteBuffer.wrap(Arrays.copyOfRange(entireFileData, 24, 28)); // big-endian by default
-        double SR = wrapped.order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
-        return SR;
+        // big-endian by default
+        ByteBuffer wrapped = ByteBuffer.wrap(Arrays.copyOfRange(entireFileData, 24, 28));
+        return wrapped.order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
     }
 
     /**

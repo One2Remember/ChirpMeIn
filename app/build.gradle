@@ -75,3 +75,19 @@ dependencies {
     // for audio conversion
     implementation 'com.github.adrielcafe:AndroidAudioConverter:0.0.8'
 }
+
+android.applicationVariants.all { variant ->
+    task("generate${variant.name.capitalize()}Javadoc", type: Javadoc) {
+        description "Generates Javadoc for $variant.name."
+
+        source = variant.javaCompile.source
+        destinationDir = file("$rootDir/javadoc/")
+        failOnError false
+
+        doFirst {
+            ext.androidJar = "${android.sdkDirectory}/platforms/${android.compileSdkVersion}/android.jar"
+            classpath = files(variant.javaCompile.classpath.files) + files(ext.androidJar)
+
+            options.addStringOption "-show-members", "package"
+        }
+    }}

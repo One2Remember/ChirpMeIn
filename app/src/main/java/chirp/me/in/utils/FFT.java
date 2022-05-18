@@ -3,7 +3,10 @@ package chirp.me.in.utils;
 /**
  * @author Orlando Selenu
  * Originally written in the Summer of 2008
- * Based on the algorithms originally published by E. Oran Brigham "The Fast Fourier Transform" 1973, in ALGOL60 and FORTRAN
+ * Based on the algorithms originally published by E. Oran Brigham "The Fast Fourier Transform"
+ * 1973, in ALGOL60 and FORTRAN
+ *
+ * Performs FastFourierTransform with no optimizations
  */
 public class FFT {
     /**

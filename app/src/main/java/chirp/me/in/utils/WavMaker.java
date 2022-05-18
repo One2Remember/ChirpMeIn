@@ -5,17 +5,18 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
-import android.media.MediaMetadataRetriever;
 import android.media.MediaRecorder;
 
 import androidx.core.app.ActivityCompat;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
-public class wavClass {
+/**
+ * generates wav files from recorded sound data
+ */
+public class WavMaker {
     String filePath = null;
     String tempRawFile = "temp_record.raw";
     String tempWavFile = null;
@@ -27,10 +28,9 @@ public class wavClass {
     int bufferSize = 0;
     Thread recordingThread;
     boolean isRecording = false;
-
     private final Context context;
 
-    public wavClass(String path, String filename, Context context) {
+    public WavMaker(String path, String filename, Context context) {
         this.context = context;
         this.tempWavFile = filename;
         try {
@@ -150,9 +150,9 @@ public class wavClass {
 
     public void startRecording() {
         try {
-            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            if(ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED)
                 return;
-            }
             recorder = new AudioRecord(
                     MediaRecorder.AudioSource.MIC,
                     sampleRate,

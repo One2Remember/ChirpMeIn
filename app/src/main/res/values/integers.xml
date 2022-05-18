@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-<!--    Give meaningful explanations for the states-->
+    <!-- Meaningful definitions for these states can be found in FirebaseHelper.java -->
     <integer name="IDLE">0</integer>
     <integer name="WAKE_UP">1</integer>
     <integer name="RECORDING_STARTED">2</integer>

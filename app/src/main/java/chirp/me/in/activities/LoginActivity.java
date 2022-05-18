@@ -1,9 +1,10 @@
 package chirp.me.in.activities;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -14,28 +15,28 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
 import com.firebase.ui.auth.AuthUI;
 import com.firebase.ui.auth.FirebaseAuthUIActivityResultContract;
-import com.firebase.ui.auth.IdpResponse;
 import com.firebase.ui.auth.data.model.FirebaseAuthUIAuthenticationResult;
 import com.google.android.gms.common.SignInButton;
-import com.google.android.gms.tasks.OnCompleteListener;
-import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
-import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.Arrays;
 import java.util.List;
 
-import chirp.me.in.R;
-import chirp.me.in.base.BaseActivity;
+import chirp.me.in.*;
 import chirp.me.in.base.OnSuccessCallback;
 import chirp.me.in.utils.FirebaseHelper;
 
-public class LoginActivity extends BaseActivity {
+/**
+ * Primary Activity - allows for user sign in / sign out and deploys the user's document
+ * snapshot listener on successful login
+ */
+public class LoginActivity extends AppCompatActivity {
     /**
      * signInLauncher, must be declared before view is created
      */
@@ -56,20 +57,25 @@ public class LoginActivity extends BaseActivity {
      * for record audio permission
      */
     private final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
-
+    /**
+     * for write external storage permission
+     */
     private final int REQUEST_WRITE_EXTERNAL_STORAGE_PERMISSION = 2;
     /**
      * for record audio permission
      */
     private final String[] permissions = {Manifest.permission.RECORD_AUDIO};
 
+    @SuppressLint("SourceLockedOrientationActivity")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_login);
 
+        // lock in portrait mode
+        this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        // initialize application base state
         initHelpers();
-        // myFirebaseHelper.initToken();
         initHooks();
         initListeners();
         initView();
@@ -81,8 +87,12 @@ public class LoginActivity extends BaseActivity {
 
     }
 
+    /**
+     * performed when user has returned from permission request prompt
+    */
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         boolean audioRecordingPermissionGranted = false;
@@ -104,6 +114,9 @@ public class LoginActivity extends BaseActivity {
         }
     }
 
+    /**
+     * request storage permission (for saving wav files and png files)
+     */
     public void requestStoragePermissions() {
         if (Build.VERSION.SDK_INT >= 23) {
             if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -127,8 +140,6 @@ public class LoginActivity extends BaseActivity {
         }
     }
 
-
-
     /**
      * init firebase helper class
      */
@@ -136,13 +147,16 @@ public class LoginActivity extends BaseActivity {
         myFirebaseHelper = new FirebaseHelper(getApplicationContext());
     }
 
-    @Override
+    /**
+     * initialize 'hooks' to all manipulated views on screen
+     */
     protected void initHooks() {
         gsiButton = findViewById(R.id.sign_in_button);
         soButton = findViewById(R.id.sign_out_button);
     }
-
-    @Override
+    /**
+     * initialize any UI listeners, such as onClick listeners
+     */
     protected void initListeners() {
         gsiButton.setOnClickListener(v-> launchFirebaseUIAuth());
 
@@ -151,8 +165,9 @@ public class LoginActivity extends BaseActivity {
             initView();
         }));
     }
-
-    @Override
+    /**
+     * initialize the base view state (login/out buttons based on login status)
+     */
     protected void initView() {
         gsiButton.setVisibility(View.GONE);
         soButton.setVisibility(View.GONE);
@@ -174,6 +189,9 @@ public class LoginActivity extends BaseActivity {
         );
     }
 
+    /**
+     * currently supports sign in with google services only, can easily be extended
+     */
     private void launchFirebaseUIAuth() {
         // Choose authentication providers
         List<AuthUI.IdpConfig> providers = Arrays.asList(
@@ -217,12 +235,31 @@ public class LoginActivity extends BaseActivity {
             // Sign in failed. If response is null the user canceled the
             // sign-in flow using the back button. Otherwise check
             // response.getError().getErrorCode() and handle the error.
-            // ...
-            // TODO: real failed sign-in response
             toast("Sign in failed", true);
         }
     }
 
+    /**
+     * toast message to screen
+     * @param toastMsg - message to print
+     * @param isLong - whether toast is long
+     */
+    protected void toast(final String toastMsg, boolean isLong) {
+        Toast.makeText(this, toastMsg, isLong ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG)
+                .show();
+    }
 
+    /**
+     * sign user out of firebase auth then perform callback when successful
+     * @param onSuccessCallback - to perform on sign out success
+     */
+    protected void signOut(OnSuccessCallback onSuccessCallback) {
+        AuthUI.getInstance()
+                .signOut(this)
+                .addOnCompleteListener(task -> {
+                    // perform callback on successful sign out
+                    onSuccessCallback.OnSuccess();
+                });
+    }
 
 }
